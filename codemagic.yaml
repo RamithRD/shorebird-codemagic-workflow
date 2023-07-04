@@ -1,0 +1,77 @@
+definitions:
+  env_versions: &env_versions
+    flutter: 3.10.4
+
+  instance_mac_mini_m1: &instance_mac_mini_m1
+    instance_type: mac_mini_m1
+    max_build_duration: 60
+
+  instance_linux_x2: &instance_linux_x2
+    instance_type: linux_x2
+    max_build_duration: 60
+
+  staging_appstore_signing: &staging_appstore_signing
+    android_signing:
+      - keystore
+    groups:
+      - shorebird
+
+  artifacts:
+    - &aab build/**/outputs/**/*.aab
+    - &mapping build/**/outputs/**/mapping.txt
+    - &flutter_drive flutter_drive.log
+
+  scripts:
+    - &dart_path
+      name: Add Dart to PATH
+      script: |
+        echo PATH="$PATH":"$FLUTTER_ROOT/.pub-cache/bin" >> $CM_ENV
+        echo PATH="$PATH":"$FLUTTER_ROOT/bin" >> $CM_ENV
+
+    - &key_properties
+      name: Set up key.properties
+      script: |
+        cat >> "$CM_BUILD_DIR/android/key.properties" <<EOF
+        storePassword=$CM_KEYSTORE_PASSWORD
+        keyPassword=$CM_KEY_PASSWORD
+        keyAlias=$CM_KEY_ALIAS
+        storeFile=$CM_KEYSTORE_PATH
+        EOF
+
+    - &shorebird_build_staging_android
+      name: Build Android Staging aab using Shorebird
+      script: |
+        shorebird build appbundle \
+          --flavor staging -t lib/main_staging.dart \        
+
+    - &setup_shorebird
+      name: 🐦 Install Shorebird
+      script: chmod +x scripts/setup-shorebird.sh && scripts/setup-shorebird.sh
+
+    - &shorebird_version
+      name: 🚀 Use Shorebird
+      script: shorebird --version
+
+workflows:
+
+  android_shorebird_staging_app:
+    name: Android Shorebird Staging App Release
+    <<: *instance_mac_mini_m1
+    environment:
+      <<: [ *env_versions, *staging_appstore_signing ]
+    scripts:
+      - *dart_path
+      - *setup_shorebird
+      - *shorebird_version
+      - *key_properties
+      - *shorebird_build_staging_android
+    artifacts:
+      - *aab
+      - *mapping
+      - *flutter_drive
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        changes_not_sent_for_review: true
+        submit_as_draft: true
